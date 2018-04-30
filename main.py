@@ -8,7 +8,7 @@ ACCESS_TOKEN = '05bb4eb867b152be20dd11f4fa292107c839931c'
 USER = 'minrk'  # Define the GitHub User Name
 REPO = 'findspark'  # Define the Repo name
 client = Github(ACCESS_TOKEN)
-g = nx.DiGraph()
+graph = nx.DiGraph()
 
 
 def getStargazers(REPO):
@@ -16,28 +16,58 @@ def getStargazers(REPO):
     repo = user.get_repo(REPO)  # Get a specific repo
     REPOS = user.get_repos()
     stargazers = list(repo.get_stargazers())  # The list of users who starred this REPO
-    g.add_node(repo.name + '(repo)', type='repo', lang=repo.language, owner=user.login)
-    for sg in stargazers:
-        g.add_node(sg.login + '(user)', type='user')
-        g.add_edge(sg.login + '(user)', repo.name + '(repo)', type='gazes')
+    graph.add_node(repo.name + '(repo)', type='repo', lang=repo.language, owner=user.login)
+    for stargazer in stargazers:
+        graph.add_node(stargazer.login + '(user)', type='user')
+        graph.add_edge(stargazer.login + '(user)', repo.name + '(repo)', type='gazes')
     #	print(len(stargazers))#See if it return a correct list
     return stargazers
 
 
 def buildRelations(stargazers):
-    for i, sg in enumerate(stargazers):
+    for i, stargazer in enumerate(stargazers):
+        followers = stargazer.get_followers()
         try:
-            for follower in sg.get_followers():
-                if follower.login + '(user)' in g:
-                    g.add_edge(follower.login + '(user)', sg.login + '(user)',
+            for follower in followers:
+                if follower.login + '(user)' in graph:
+                    graph.add_edge(follower.login + '(user)', stargazer.login + '(user)',
                                type='follows')
-        except Exception:  # ssl.SSLError
-            sys.stderr.write("Encountered an error fetching followers for", \
-                             sg.login, "Skipping.")
+        except Exception:  
+            print("Encountered an error when finding follower for user: ", \
+                             stargazer.login)
+        print ("API Calls Remaining", client.rate_limiting)
 
-        print("Processed", i + 1, " stargazers. Num nodes/edges in graph", \
-              g.number_of_nodes(), "/", g.number_of_edges())
-        print("Rate limit remaining", client.rate_limiting)
+from operator import itemgetter
+from collections import Counter
+
+def getHottestUser(stargazers):
+    
+    temp_list = []
+    for edge in graph.edges(data = True):
+        if edge[2]['type'] == 'follows':
+            temp_list.append(edge[1])
+    counter = Counter(temp_list)
+    
+    popular_users = []
+    for u, f in counter.most_common():
+        popular_users.append((u,f))
+    print ("Number of popular users", len(popular_users))
+    print ("Top popular users:", popular_users[:10])
+
+
+def formatResult(graph):
+    graph_copy = graph.copy()
+    # Remove center node
+    graph_copy.remove_node('findspark(repo)')
+
+    dc = sorted(nx.degree_centrality(graph_copy).items(), 
+                key=itemgetter(1), reverse=True)
+
+    bc = sorted(nx.betweenness_centrality(graph_copy).items(), 
+                key=itemgetter(1), reverse=True)
+    cc = sorted(nx.closeness_centrality(graph_copy).items(), 
+                key=itemgetter(1), reverse=True)
+    return (dc, bc, cc)
 
 def getHottestRepo(stargazers):
     MAX_REPOS = 500
@@ -81,9 +111,12 @@ def getHottestRepo(stargazers):
                   for n in g.nodes_iter()
                   if g.node[n]['type'] == 'user' and len(g.out_edges(n)) > MAX_REPOS], \
                  key=itemgetter(1), reverse=True))
+
+
 if __name__ == '__main__':
     stargazers = getStargazers(REPO)
     buildRelations(stargazers)
-    print(nx.info(g), '\n')
-    print(len([e for e in g.edges_iter(data=True) if e[2]['type'] == 'follows']), '\n')
-    getHottestRepo(stargazers)
+    getHottestUser(stargazers)
+    # print(nx.info(g), '\n')
+    # print(len([e for e in g.edges_iter(data=True) if e[2]['type'] == 'follows']), '\n')
+    # getHottestRepo(stargazers)
